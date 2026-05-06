@@ -26,10 +26,7 @@ const LITE_CATEGORIES = new Set<string>([
 /** Categories EXCLUDED in `3d` mode (2D-only / less useful for 3D workflows). */
 const NON_3D_CATEGORIES = new Set<string>([
   "tilemap",
-  "particle", // 2D & 3D particles share — keep? keep it; remove from this set.
 ]);
-// Particles apply to 3D too — keep them.
-NON_3D_CATEGORIES.delete("particle");
 
 /** Tool names included in `minimal` mode. */
 const MINIMAL_TOOLS = new Set<string>([

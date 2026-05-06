@@ -159,7 +159,7 @@ class Daemon {
       return;
     }
 
-    if (req.id === undefined || req.id === null || typeof req.method !== "string") {
+    if (req.id == null || typeof req.method !== "string") {
       this.send(socket, req.id ?? null, undefined, { code: -32600, message: "Invalid request" });
       return;
     }
