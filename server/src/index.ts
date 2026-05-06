@@ -1,17 +1,11 @@
 #!/usr/bin/env node
-// Godot MCP Pro server — stdio MCP entry point.
+// Godot MCP Pro stdio entry point.
 //
-// CLI usage (set in claude/cursor/etc.'s mcp config):
-//   node build/index.js                # full mode (172 tools)
-//   node build/index.js --3d           # drop 2D-only tools
-//   node build/index.js --lite         # essential set (~81 tools)
-//   node build/index.js --minimal      # ~35 tools
+// New daemon architecture:
+//   Godot addon <--ws:6505-6509--> node build/server.js <--ws:6520--> this stdio process
 //
-// Environment variables:
-//   GODOT_MCP_PORT       force a specific port (else 6505-6509)
-//   GODOT_MCP_PORT_RANGE "lo-hi" override port range
-//   GODOT_MCP_TIMEOUT_MS per-request timeout (ms)
-//   GODOT_MCP_DEBUG=1    verbose stderr logging
+// This process only speaks MCP over stdio to the AI client and forwards all
+// data/commands to the long-running Node.js server over WebSocket.
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -19,13 +13,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { GodotBridge, GodotError } from "./godot-bridge.js";
-import { getToolsForMode } from "./tools/index.js";
-import type { Mode } from "./tools/types.js";
-import { log } from "./log.js";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { log } from "./log.js";
+import { RpcClient, RpcError } from "./rpc-client.js";
+import type { Mode, ResolvedTool } from "./tools/types.js";
 
 interface ParsedArgs {
   mode: Mode;
@@ -51,7 +44,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "-h":
         printHelp();
         process.exit(0);
-      // ignore unknown
+      // ignore unknown args for client compatibility
     }
   }
   return { mode };
@@ -60,21 +53,25 @@ function parseArgs(argv: string[]): ParsedArgs {
 function printHelp(): void {
   process.stderr.write(
     [
-      "godot-mcp-pro — MCP stdio server for the Godot editor",
+      "godot-mcp-pro — MCP stdio client for the long-running Godot MCP Pro server",
       "",
       "Usage: node build/index.js [--full|--3d|--lite|--minimal]",
       "",
+      "Start the daemon first:",
+      "  node build/server.js",
+      "",
       "Modes:",
-      "  --full      All 171 tools (default)",
-      "  --3d        Drop 2D-only categories (tilemap, ...)",
+      "  --full      All tools (default)",
+      "  --3d        3D-focused set",
       "  --lite      Essential 8 categories",
       "  --minimal   ~35 hand-picked essential tools",
       "",
       "Env:",
-      "  GODOT_MCP_PORT=6505           force a specific port",
-      "  GODOT_MCP_PORT_RANGE=6505-6509 override the port range",
-      "  GODOT_MCP_TIMEOUT_MS=60000    per-request timeout",
-      "  GODOT_MCP_DEBUG=1             verbose logging to stderr",
+      "  GODOT_MCP_SERVER_URL=ws://127.0.0.1:6520",
+      "  GODOT_MCP_SERVER_HOST=127.0.0.1",
+      "  GODOT_MCP_SERVER_PORT=6520",
+      "  GODOT_MCP_TIMEOUT_MS=60000",
+      "  GODOT_MCP_DEBUG=1",
     ].join("\n") + "\n",
   );
 }
@@ -89,73 +86,62 @@ function getServerVersion(): string {
   }
 }
 
-function parsePortRange(): { port?: number; portRange?: [number, number] } {
-  const single = process.env.GODOT_MCP_PORT;
-  if (single) {
-    const n = Number.parseInt(single, 10);
-    if (Number.isFinite(n)) return { port: n };
-  }
-  const range = process.env.GODOT_MCP_PORT_RANGE;
-  if (range) {
-    const m = range.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (m) return { portRange: [Number.parseInt(m[1], 10), Number.parseInt(m[2], 10)] };
-  }
-  return {};
-}
-
 async function main(): Promise<void> {
   const { mode } = parseArgs(process.argv.slice(2));
-  const tools = getToolsForMode(mode);
-  log.info(`Starting Godot MCP Pro server (mode=${mode}, tools=${tools.length})`);
-
-  const portCfg = parsePortRange();
   const timeoutMs = Number.parseInt(process.env.GODOT_MCP_TIMEOUT_MS ?? "", 10);
-  const bridge = new GodotBridge({
-    ...portCfg,
-    defaultTimeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+  const rpc = new RpcClient({
+    requestTimeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
   });
 
-  await bridge.start();
+  await rpc.connect();
+  log.info(`Connected MCP stdio process to Node.js server (mode=${mode})`);
 
-  const toolsByName = new Map(tools.map((t) => [t.name, t] as const));
+  let cachedTools: ResolvedTool[] | null = null;
+  const loadTools = async (): Promise<ResolvedTool[]> => {
+    const result = await rpc.call("list_tools", { mode });
+    if (isToolList(result)) {
+      cachedTools = result.tools;
+      return result.tools;
+    }
+    throw new RpcError(-32603, "Node.js server returned invalid tool list");
+  };
 
   const server = new Server(
     { name: "godot-mcp-pro", version: getServerVersion() },
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = await loadTools();
+    return {
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      })),
+    };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
-    const tool = toolsByName.get(name);
-    if (!tool) {
-      return {
-        isError: true,
-        content: [{ type: "text", text: `Unknown tool: ${name}` }],
-      };
-    }
-
     try {
-      // Best-effort: wait briefly for the addon if it's not yet connected.
-      if (!bridge.isConnected()) {
-        await bridge.waitForConnection(5_000);
+      if (cachedTools && !cachedTools.some((t) => t.name === name)) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Unknown tool in active mode (${mode}): ${name}` }],
+        };
       }
-      const result = await bridge.call(name, (args ?? {}) as Record<string, unknown>);
+      const result = await rpc.call("call_tool", {
+        name,
+        arguments: (args ?? {}) as Record<string, unknown>,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     } catch (err) {
-      const message = formatError(err);
       return {
         isError: true,
-        content: [{ type: "text", text: message }],
+        content: [{ type: "text", text: formatError(err) }],
       };
     }
   });
@@ -164,23 +150,27 @@ async function main(): Promise<void> {
   await server.connect(transport);
   log.info("MCP stdio transport ready");
 
-  const shutdown = async (signal: string) => {
-    log.info(`Received ${signal}, shutting down`);
-    try {
-      await bridge.close();
-    } catch (err) {
-      log.warn(`Bridge close error: ${(err as Error).message}`);
-    }
+  const shutdown = (signal: string) => {
+    log.info(`Received ${signal}, shutting down stdio process`);
+    rpc.close();
     process.exit(0);
   };
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+}
+
+function isToolList(value: unknown): value is { tools: ResolvedTool[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as { tools?: unknown }).tools)
+  );
 }
 
 function formatError(err: unknown): string {
-  if (err instanceof GodotError) {
+  if (err instanceof RpcError) {
     const data = err.data ? `\n  data: ${JSON.stringify(err.data)}` : "";
-    return `Godot error ${err.code}: ${err.message}${data}`;
+    return `Server error ${err.code}: ${err.message}${data}`;
   }
   if (err instanceof Error) return err.message;
   return String(err);
@@ -190,3 +180,4 @@ main().catch((err) => {
   log.error(`Fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
   process.exit(1);
 });
+

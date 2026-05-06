@@ -7,30 +7,15 @@
 //   node build/cli.js <category> <command> [--option value ...]
 //   node build/cli.js call <tool_name> --params '{"json":"object"}'
 //
-// The CLI binds to the CLI port range (6510-6514 by default) and waits for
-// the Godot addon to connect before issuing the call.
+// The CLI connects to the long-running Node.js server over WebSocket. It never
+// connects to the Godot addon directly.
 
 import { Command, Option } from "commander";
-import { GodotBridge, GodotError } from "./godot-bridge.js";
 import { getAllToolsByName, getCategories, GENERATED_TOOLS } from "./tools/index.js";
-import { log } from "./log.js";
+import { RpcClient, RpcError } from "./rpc-client.js";
 import type { ResolvedTool } from "./tools/types.js";
 
 const PROGRAM_NAME = "godot-mcp-pro-cli";
-
-function parsePortRange(): { port?: number; portRange?: [number, number] } {
-  const single = process.env.GODOT_MCP_CLI_PORT;
-  if (single) {
-    const n = Number.parseInt(single, 10);
-    if (Number.isFinite(n)) return { port: n };
-  }
-  const range = process.env.GODOT_MCP_CLI_PORT_RANGE;
-  if (range) {
-    const m = range.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (m) return { portRange: [Number.parseInt(m[1], 10), Number.parseInt(m[2], 10)] };
-  }
-  return { portRange: [6510, 6514] };
-}
 
 interface ParsedTool {
   tool: ResolvedTool;
@@ -39,8 +24,8 @@ interface ParsedTool {
 function buildProgram(): Command {
   const program = new Command(PROGRAM_NAME)
     .description(
-      "Direct CLI for the Godot MCP Pro server. Invoke any of the 171 tools without going through MCP.\n\n" +
-        "Requires the Godot editor running with the godot_mcp plugin enabled.",
+      "Direct CLI client for the Godot MCP Pro daemon. Invoke tools without going through MCP.\n\n" +
+        "Requires `node build/server.js` to be running and the Godot editor plugin enabled.",
     )
     .showHelpAfterError();
 
@@ -170,18 +155,14 @@ function buildArgs(tool: ResolvedTool, opts: Record<string, unknown>): Record<st
 
 async function runTool(tool: ResolvedTool, rawOpts: Record<string, unknown>): Promise<void> {
   const args = buildArgs(tool, rawOpts);
-  const portCfg = parsePortRange();
-  const bridge = new GodotBridge(portCfg);
+  const rpc = new RpcClient();
 
   try {
-    await bridge.start();
-    log.info(`Waiting for Godot to connect on port ${bridge.port()}...`);
-    await bridge.waitForConnection(30_000);
-    const result = await bridge.call(tool.name, args);
+    const result = await rpc.call("call_tool", { name: tool.name, arguments: args });
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     process.exitCode = 0;
   } catch (err) {
-    if (err instanceof GodotError) {
+    if (err instanceof RpcError) {
       process.stderr.write(`Error ${err.code}: ${err.message}\n`);
       if (err.data) process.stderr.write(`  data: ${JSON.stringify(err.data)}\n`);
     } else {
@@ -189,7 +170,7 @@ async function runTool(tool: ResolvedTool, rawOpts: Record<string, unknown>): Pr
     }
     process.exitCode = 1;
   } finally {
-    await bridge.close().catch(() => undefined);
+    rpc.close();
   }
 }
 

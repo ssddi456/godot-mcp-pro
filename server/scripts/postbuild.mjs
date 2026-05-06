@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const buildDir = resolve(__dirname, "..", "build");
 
-for (const f of ["index.js", "cli.js", "setup.js"]) {
+for (const f of ["server.js", "index.js", "cli.js", "setup.js"]) {
   const p = resolve(buildDir, f);
   if (existsSync(p)) {
     chmodSync(p, 0o755);

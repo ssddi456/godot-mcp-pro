@@ -1,11 +1,12 @@
 {
   "name": "godot-mcp-pro-server",
   "version": "1.0.0",
-  "description": "Godot MCP Pro server — bridges MCP (stdio) clients to the Godot editor plugin via WebSocket.",
+  "description": "Godot MCP Pro daemon and stdio/CLI clients for the Godot editor plugin.",
   "license": "SEE LICENSE IN ../LICENSE",
   "type": "module",
   "main": "build/index.js",
   "bin": {
+    "godot-mcp-pro-server": "build/server.js",
     "godot-mcp-pro": "build/index.js",
     "godot-mcp-pro-cli": "build/cli.js"
   },
@@ -17,7 +18,8 @@
     "generate": "node scripts/generate-tools.mjs",
     "prebuild": "npm run generate",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
-    "start": "node build/index.js",
+    "start": "node build/server.js",
+    "mcp": "node build/index.js",
     "cli": "node build/cli.js",
     "test": "node --test build/test/*.test.js || true"
   },
