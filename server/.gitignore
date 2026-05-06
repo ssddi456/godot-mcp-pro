@@ -1,0 +1,5 @@
+node_modules/
+build/
+src/tools/generated.ts
+*.log
+.DS_Store
