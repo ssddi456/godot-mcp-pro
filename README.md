@@ -1,6 +1,6 @@
 # Godot MCP Pro
 
-Advanced MCP (Model Context Protocol) server for AI-powered Godot game development. Connects AI assistants like Claude directly to your Godot editor with **172 powerful tools**.
+Advanced MCP (Model Context Protocol) server for AI-powered Godot game development. Connects AI assistants like Claude directly to your Godot editor with up to **172 powerful tools** in Full mode.
 
 ## Architecture
 
@@ -129,7 +129,7 @@ Replace `/path/to/` with the actual path where you extracted the files.
 The CLI connects to the running daemon via WebSocket. It requires:
 - Godot editor running with the MCP plugin enabled
 - Node.js client and CLI built (`npm run build` in `server/`)
-- Node.js or Go daemon running on `GODOT_MCP_SERVER_PORT` (default `6520`)
+- Node.js or Go daemon running on the expected `GODOT_MCP_SERVER_PORT` (default `6520`)
 
 **Advantage**: LLMs discover capabilities progressively via `--help` instead of loading all tool definitions upfront. This works with any LLM client that has terminal access, regardless of tool count limits.
 
