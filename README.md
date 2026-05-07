@@ -14,7 +14,7 @@ AI Assistant ←—stdio/MCP—→ Node.js Client ←—WebSocket:6520—→ Nod
 
 ## What's in this repo
 
-This repository includes the Godot addon plus both server implementations:
+This repository includes the Godot addon plus both daemon implementations:
 
 - `addons/godot_mcp/` — Godot editor plugin
 - `server/` — Node.js daemon, MCP stdio client, and CLI client
@@ -128,7 +128,7 @@ Replace `/path/to/` with the actual path where you extracted the files.
 
 The CLI connects to the running daemon via WebSocket. It requires:
 - Godot editor running with the MCP plugin enabled
-- Node.js client built (`npm run build` in `server/`)
+- Node.js client and CLI built (`npm run build` in `server/`)
 - Node.js or Go daemon running on `GODOT_MCP_SERVER_PORT` (default `6520`)
 
 **Advantage**: LLMs discover capabilities progressively via `--help` instead of loading all tool definitions upfront. This works with any LLM client that has terminal access, regardless of tool count limits.

@@ -16,7 +16,7 @@ AI Assistant ←—stdio/MCP—→ Node.js Client ←—WebSocket:6520—→ Nod
 
 ## 仓库内容
 
-本仓库包含 Godot 插件以及两种服务器实现：
+本仓库包含 Godot 插件以及两种 daemon 实现：
 
 - `addons/godot_mcp/` — Godot 编辑器插件
 - `server/` — Node.js daemon、MCP stdio 客户端和 CLI 客户端
@@ -78,6 +78,8 @@ server-go/godot-mcp-pro-server
   }
 }
 ```
+
+请将 `/path/to/` 替换为你本机仓库或发行包的实际路径。
 
 ### 5. 自动审批工具权限（推荐）
 
