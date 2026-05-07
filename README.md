@@ -1,11 +1,11 @@
 # Godot MCP Pro
 
-Premium MCP (Model Context Protocol) server for AI-powered Godot game development. Connects AI assistants like Claude directly to your Godot editor with **172 powerful tools**.
+Advanced MCP (Model Context Protocol) server for AI-powered Godot game development. Connects AI assistants like Claude directly to your Godot editor with **172 powerful tools**.
 
 ## Architecture
 
 ```
-AI Assistant ←—stdio/MCP—→ Node.js Server ←—WebSocket:6505—→ Godot Editor Plugin
+AI Assistant ←—stdio/MCP—→ Node.js Client ←—WebSocket:6520—→ Node.js or Go Daemon ←—WebSocket:6505-6509—→ Godot Editor Plugin
 ```
 
 - **Real-time**: WebSocket connection means instant feedback, no file polling
@@ -14,12 +14,11 @@ AI Assistant ←—stdio/MCP—→ Node.js Server ←—WebSocket:6505—→ God
 
 ## What's in this repo
 
-> ⚠️ **This public repo only contains the free Godot addon/plugin.** The MCP server (Node.js, required to connect AI assistants) is distributed as part of the paid package — **one-time purchase**, lifetime updates:
->
-> - **Buy Me a Coffee**: <https://buymeacoffee.com/y1uda/extras>
-> - **itch.io**: <https://y1uda.itch.io/godot-mcp-pro>
->
-> The paid zip includes the addon, the `server/` directory with pre-built JavaScript, `INSTALL.md`, and AI-client instructions. If you cloned this repo and don't see a `server/` folder, **that's expected** — grab the full package from one of the links above.
+This repository includes the Godot addon plus both server implementations:
+
+- `addons/godot_mcp/` — Godot editor plugin
+- `server/` — Node.js daemon, MCP stdio client, and CLI client
+- `server-go/` — Go daemon compatible with the Node.js stdio/CLI clients
 
 ## Quick Start
 
@@ -29,9 +28,9 @@ Copy the `addons/godot_mcp/` folder into your Godot project's `addons/` director
 
 Enable the plugin: **Project → Project Settings → Plugins → Godot MCP Pro → Enable**
 
-### 2. Install the MCP Server
+### 2. Build the MCP Components
 
-> The `server/` directory is only included in the **full paid package** (see above). After downloading and extracting the zip, run:
+Build the Node.js MCP stdio/CLI clients and Node daemon:
 
 ```bash
 cd server
@@ -39,7 +38,28 @@ npm install
 npm run build
 ```
 
-### 3. Configure Claude Code
+Optionally build the Go daemon:
+
+```bash
+cd ../server-go
+go build -o godot-mcp-pro-server ./cmd/godot-mcp-pro-server
+```
+
+The Node.js and Go daemons expose the same local WebSocket JSON-RPC API on port `6520`, so the Node.js MCP stdio/CLI clients can use either daemon.
+
+### 3. Start a Daemon
+
+Start one daemon and keep it running while you use the MCP client:
+
+```bash
+# Node.js daemon
+node server/build/server.js
+
+# Or Go daemon
+server-go/godot-mcp-pro-server
+```
+
+### 4. Configure Claude Code
 
 Add to your `.mcp.json`:
 
@@ -50,14 +70,14 @@ Add to your `.mcp.json`:
       "command": "node",
       "args": ["/path/to/server/build/index.js"],
       "env": {
-        "GODOT_MCP_PORT": "6505"
+        "GODOT_MCP_SERVER_PORT": "6520"
       }
     }
   }
 }
 ```
 
-### 4. Choose Your Mode
+### 5. Choose Your Mode
 
 Godot MCP Pro offers four modes to fit any client's tool limit:
 
@@ -84,7 +104,7 @@ Replace `--lite` with `--minimal` for the smallest footprint.
 - **Lite** includes: project, scene, node, script, editor, input, runtime, and input_map tools.
 - **Minimal** includes: 35 essential tools — project info, scene management, node CRUD, script editing, editor errors, input simulation, and runtime inspection.
 
-### 5. CLI Mode (Alternative to MCP)
+### 6. CLI Mode (Alternative to MCP)
 
 For clients without MCP support, or when you want zero context overhead, use the CLI directly from a terminal/bash tool. The CLI requires the server to be built first (Step 2).
 
@@ -106,14 +126,14 @@ node /path/to/server/build/cli.js node add --type CharacterBody3D --name Player
 
 Replace `/path/to/` with the actual path where you extracted the files.
 
-The CLI connects directly to the Godot editor plugin via WebSocket. It requires:
+The CLI connects to the running daemon via WebSocket. It requires:
 - Godot editor running with the MCP plugin enabled
-- Server built (`node build/setup.js install`)
-- An available port in the 6510-6514 range
+- Node.js client built (`npm run build` in `server/`)
+- Node.js or Go daemon running on `GODOT_MCP_SERVER_PORT` (default `6520`)
 
 **Advantage**: LLMs discover capabilities progressively via `--help` instead of loading all tool definitions upfront. This works with any LLM client that has terminal access, regardless of tool count limits.
 
-### 6. Client Compatibility
+### 7. Client Compatibility
 
 | Client | Recommended Mode | Notes |
 |--------|-----------------|-------|
@@ -129,7 +149,7 @@ The CLI connects directly to the Godot editor plugin via WebSocket. It requires:
 | OpenCode | Minimal or CLI | Models degrade past ~40 tools |
 | Local LLMs (LM Studio, etc.) | Minimal or CLI | Context window is the bottleneck |
 
-### 7. Use It
+### 8. Use It
 
 Open your Godot project with the plugin enabled, then use Claude Code to interact with the editor.
 
@@ -408,7 +428,7 @@ Open your Godot project with the plugin enabled, then use Claude Code to interac
 
 ### Tool Count
 
-| Category | Godot MCP Pro | GDAI MCP ($19) | tomyud1 (free) | Dokujaa (free) | Coding-Solo (free) | ee0pdt (free) | bradypp (free) |
+| Category | Godot MCP Pro | GDAI MCP | tomyud1 | Dokujaa | Coding-Solo | ee0pdt | bradypp |
 |----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Project | 7 | 5 | 4 | 0 | 2 | 2 | 2 |
 | Scene | 9 | 8 | 11 | 9 | 3 | 4 | 5 |
@@ -443,7 +463,7 @@ Open your Godot project with the plugin enabled, then use Claude Code to interac
 
 ### Feature Matrix
 
-| Feature | Godot MCP Pro | GDAI MCP ($19) | tomyud1 (free) | Dokujaa (free) | Coding-Solo (free) |
+| Feature | Godot MCP Pro | GDAI MCP | tomyud1 | Dokujaa | Coding-Solo |
 |---------|:---:|:---:|:---:|:---:|:---:|
 | **Connection** | WebSocket (real-time) | stdio (Python) | WebSocket | TCP Socket | Headless CLI |
 | **Undo/Redo** | Yes | Yes | No | No | No |
@@ -493,4 +513,4 @@ Open your Godot project with the plugin enabled, then use Claude Code to interac
 
 ## License
 
-Proprietary — see [LICENSE](LICENSE) for details. Purchase includes lifetime updates.
+Proprietary — see [LICENSE](LICENSE) for details.
