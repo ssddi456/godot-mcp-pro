@@ -311,6 +311,7 @@ describe("MCP stdio protocol", () => {
           const id = mcp.send("tools/call", { name, arguments: args ?? {} });
           return { name, id, sentAt: Date.now() };
         });
+        console.log(`Dispatched ${calls.length} tool calls in ${Date.now() - start} ms`);
 
         // Collect responses by id (order-independent).
         const results = await Promise.all(
@@ -330,6 +331,8 @@ describe("MCP stdio protocol", () => {
         // (reuses this same session — avoids spawning an extra process).
         for (const { name, res, elapsed } of results) {
           const isSuccess = assertToolResult(name, res, elapsed);
+          console.log(`[${name}] responded in ${elapsed} ms (${isSuccess ? "success" : "error"}) — wall time so far: ${wall} ms`);
+          console.log(JSON.stringify(res.result));
           if (name === "get_project_info" && isSuccess) {
             const data = JSON.parse(
               (res.result as McpToolResult).content[0].text,

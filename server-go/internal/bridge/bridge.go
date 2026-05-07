@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -29,6 +31,7 @@ type Options struct {
 	PortRangeLow      int           // inclusive
 	PortRangeHigh     int           // inclusive
 	HeartbeatInterval time.Duration // 0 disables
+	PongTimeout       time.Duration // max wait for pong after ping; 0 = 2×HeartbeatInterval
 	DefaultTimeout    time.Duration
 }
 
@@ -42,6 +45,9 @@ func (o *Options) applyDefaults() {
 	}
 	if o.HeartbeatInterval == 0 {
 		o.HeartbeatInterval = 10 * time.Second
+	}
+	if o.PongTimeout == 0 {
+		o.PongTimeout = 2 * o.HeartbeatInterval
 	}
 	if o.DefaultTimeout == 0 {
 		o.DefaultTimeout = 60 * time.Second
@@ -68,6 +74,10 @@ type Bridge struct {
 	pending     map[int64]pendingRequest
 	connectedCh chan struct{}
 	closed      bool
+
+	// lastPong stores a time.Time: updated on every pong from the addon.
+	// Used by runHeartbeat to detect zombie connections.
+	lastPong atomic.Value
 }
 
 // New constructs a bridge with defaults applied.
@@ -158,9 +168,18 @@ func (b *Bridge) handleConn(conn *websocket.Conn) {
 	b.mu.Unlock()
 	close(prevCh) // wake any waitForConnection callers
 
+	// Seed lastPong so the first heartbeat check doesn't immediately evict.
+	b.lastPong.Store(time.Now())
+
 	logger.Info("Godot addon connected on port %d", b.boundPort)
 
 	conn.SetReadLimit(16 * 1024 * 1024)
+	// Set initial read deadline. It is reset on every incoming message.
+	// If nothing arrives within PongTimeout (default 20 s), the connection
+	// is considered dead (half-open TCP) and is closed automatically.
+	if b.opts.PongTimeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(b.opts.PongTimeout))
+	}
 	stopHeartbeat := make(chan struct{})
 	if b.opts.HeartbeatInterval > 0 {
 		go b.runHeartbeat(conn, stopHeartbeat)
@@ -198,6 +217,11 @@ func (b *Bridge) handleConn(conn *websocket.Conn) {
 }
 
 func (b *Bridge) handleAddonMessage(conn *websocket.Conn, data []byte) {
+	// Reset read deadline: any incoming data proves the connection is alive.
+	if b.opts.PongTimeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(b.opts.PongTimeout))
+	}
+	logger.Info("bridge ← addon raw (truncated): %s", truncate(data, 120))
 	var msg struct {
 		ID     json.RawMessage `json:"id,omitempty"`
 		Method string          `json:"method,omitempty"`
@@ -209,13 +233,13 @@ func (b *Bridge) handleAddonMessage(conn *websocket.Conn, data []byte) {
 		return
 	}
 
-	// Notification (no id): handle ping, ignore others except logging.
+	// Notification (no id): handle ping/pong, ignore others except logging.
 	if len(msg.ID) == 0 || string(msg.ID) == "null" {
 		switch msg.Method {
 		case "ping":
 			b.sendNotificationLocked(conn, "pong", map[string]any{})
 		case "pong":
-			// ignore
+			b.lastPong.Store(time.Now())
 		default:
 			logger.Debug("addon notification %q (ignored)", msg.Method)
 		}
@@ -250,6 +274,16 @@ func (b *Bridge) runHeartbeat(conn *websocket.Conn, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			// Evict zombie connection: if no pong has arrived within PongTimeout,
+			// the TCP session is dead (e.g. Godot crashed without sending FIN).
+			if lp, ok := b.lastPong.Load().(time.Time); ok {
+				if time.Since(lp) > b.opts.PongTimeout {
+					logger.Warn("Godot addon pong timeout (last pong %s ago) — closing zombie connection",
+						time.Since(lp).Round(time.Second))
+					_ = conn.Close()
+					return
+				}
+			}
 			b.sendNotificationLocked(conn, "ping", map[string]any{})
 		}
 	}
@@ -342,15 +376,18 @@ func (b *Bridge) Call(ctx context.Context, method string, params map[string]any)
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeBridgeError, Message: fmt.Sprintf("Failed to send request: %v", err)}
 	}
 	b.writeMu.Unlock()
+	logger.Info("bridge → addon id=%d method=%s", id, method)
 
 	select {
 	case resp := <-resCh:
+		logger.Info("bridge ← addon id=%d hasError=%v", id, resp.Error != nil)
 		if resp.Error != nil {
 			return nil, resp.Error
 		}
 		return resp.Result, nil
 	case <-ctx.Done():
 		b.removePending(id)
+		logger.Warn("bridge.Call timeout: no response from Godot for method=%s id=%d (is connection half-open?)", method, id)
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeBridgeError, Message: fmt.Sprintf("Request timed out: %s", method)}
 	}
 }
@@ -391,6 +428,14 @@ func parseNumericID(raw json.RawMessage) (int64, error) {
 	var n int64
 	if err := json.Unmarshal(raw, &n); err == nil {
 		return n, nil
+	}
+	// Godot's JSON serializer may emit integers as floats (e.g. 1.0).
+	// Accept float values that are whole numbers.
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		if f == math.Trunc(f) {
+			return int64(f), nil
+		}
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
