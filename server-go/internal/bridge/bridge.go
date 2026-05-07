@@ -50,7 +50,6 @@ func (o *Options) applyDefaults() {
 
 type pendingRequest struct {
 	resolve chan<- *jsonrpc.Response
-	method  string
 }
 
 // Bridge owns the WebSocket connection to the Godot addon.
@@ -319,7 +318,7 @@ func (b *Bridge) Call(ctx context.Context, method string, params map[string]any)
 	b.nextID++
 	id := b.nextID
 	resCh := make(chan *jsonrpc.Response, 1)
-	b.pending[id] = pendingRequest{resolve: resCh, method: method}
+	b.pending[id] = pendingRequest{resolve: resCh}
 	b.mu.Unlock()
 
 	if params == nil {

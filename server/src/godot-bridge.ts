@@ -275,7 +275,7 @@ export class GodotBridge extends EventEmitter {
     if (this.closed) {
       return Promise.reject(new GodotError(-32000, "Bridge is closed"));
     }
-    if (!this.socket || this.socket.readyState !== 1) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(
         new GodotError(
           -32000,
