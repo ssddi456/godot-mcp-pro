@@ -56,7 +56,7 @@ Start one daemon and keep it running while you use the MCP client:
 node server/build/server.js
 
 # Or Go daemon
-server-go/godot-mcp-pro-server
+./server-go/godot-mcp-pro-server
 ```
 
 ### 4. Configure Claude Code

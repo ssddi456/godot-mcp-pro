@@ -58,7 +58,7 @@ Node.js 和 Go daemon 都在 `6520` 端口提供相同的本地 WebSocket JSON-R
 node server/build/server.js
 
 # 或 Go daemon
-server-go/godot-mcp-pro-server
+./server-go/godot-mcp-pro-server
 ```
 
 ### 4. 配置 Claude Code
