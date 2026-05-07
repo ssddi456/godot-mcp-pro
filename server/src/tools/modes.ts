@@ -1,9 +1,9 @@
 // Mode definitions — which categories/tools belong to which preset.
 //
 // The README defines four modes:
-//   - full     (default, 172 tools)
-//   - 3d       (~100 tools, drops 2D-only categories like tilemap)
-//   - lite     (~81 tools — project, scene, node, script, editor, input, runtime, input_map)
+//   - full     (default, all tools)
+//   - 3d       (drops 2D-only categories like tilemap)
+//   - lite     (~80 tools — project, scene, node, script, editor, input, runtime, input_map)
 //   - minimal  (~35 tools — essential subset)
 //
 // We classify by category (the source-file group) and then layer per-tool

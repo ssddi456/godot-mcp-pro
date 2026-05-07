@@ -20,7 +20,7 @@
 // and new requests are queued (and rejected after a configurable timeout) until
 // reconnect.
 
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { createServer, type Server } from "node:http";
 import { EventEmitter } from "node:events";
 import { log } from "./log.js";
@@ -245,7 +245,7 @@ export class GodotBridge extends EventEmitter {
 
   /** Whether a Godot addon is currently connected. */
   isConnected(): boolean {
-    return this.socket !== null && this.socket.readyState === 1; // OPEN
+    return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
   }
 
   /** Wait until a Godot addon connects, or reject after `timeoutMs`. */
