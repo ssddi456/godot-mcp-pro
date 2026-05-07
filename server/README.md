@@ -29,10 +29,16 @@ npm install
 npm run build
 ```
 
-Start the daemon and keep it running:
+Start the daemon and keep it running. You can use either the Node daemon
+in this folder or the Go daemon under [`../server-go`](../server-go) — both
+implement the same WebSocket JSON-RPC API on port `6520`:
 
 ```bash
+# Node daemon
 node build/server.js
+
+# Or the Go daemon (see ../server-go/README.md)
+../server-go/godot-mcp-pro-server
 ```
 
 Add to your client's MCP config (Claude Code / Cursor / VS Code Copilot / …):
