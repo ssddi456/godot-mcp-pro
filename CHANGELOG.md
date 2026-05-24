@@ -4,6 +4,15 @@ All notable changes to Godot MCP Pro will be documented in this file.
 
 ---
 
+## v1.14.1 — 2026-05-24
+
+**Patch** — `assert_node_state` regression fix
+
+### Fixed
+- **`assert_node_state` "Unknown command" regression**: The game-side handler in `mcp_game_inspector_service.gd` had been removed during the v1.7.0 refactor (`4ea3989`, 2026-03-29) that introduced `batch_add_nodes` / `watch_signals` / `setup_control`. The TypeScript server and editor-side GDScript still routed the call, but the runtime match statement no longer recognized it — so `assert_node_state` (and any `type:"assert"` step inside `run_test_scenario`) returned `Unknown command: assert_node_state` on every call from v1.7.0 through v1.14.0. Restored the handler with all 8 operators (`eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `contains`, `type_is`) and sub-property access via `get_indexed()` (e.g. `position:y`). Reported by **Z_runner [CRWN]** on Discord.
+
+---
+
 ## v1.14.0 — 2026-05-18
 
 **Feature / Safety** — File-conflict safety overhaul (community contribution)
